@@ -3,12 +3,11 @@ package com.example.autotimemelodyremote;
 import android.Manifest;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
-import android.net.http.SslError;
+import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
 import android.view.WindowManager;
 import android.webkit.PermissionRequest;
-import android.webkit.SslErrorHandler;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -107,19 +106,17 @@ public class MainActivity extends AppCompatActivity {
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
 
-        // จัดการฝั่ง Client: ข้ามหน้าต่างแจ้งเตือน SSL Self-Signed
-        webView.setWebViewClient(new WebViewClient() {
-            @Override
-            public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
-                handler.proceed();
-            }
-        });
+        // บังคับปลดล็อก Cross-Origin และ Local Storage
+        settings.setAllowFileAccessFromFileURLs(true);
+        settings.setAllowUniversalAccessFromFileURLs(true);
 
-        // จัดการฝั่ง ChromeClient: อนุมัติสิทธิ์ WebRTC ไมค์และกล้องให้อัตโนมัติ
+        webView.setWebViewClient(new WebViewClient());
+
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onPermissionRequest(final PermissionRequest request) {
                 MainActivity.this.runOnUiThread(() -> {
+                    // อนุญาตทุก Resource รวมถึง Audio Capture โดยไม่ผ่านการตรวจสอบ Origin
                     request.grant(request.getResources());
                 });
             }
