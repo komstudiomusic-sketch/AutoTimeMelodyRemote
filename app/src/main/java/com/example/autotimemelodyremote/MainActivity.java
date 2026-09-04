@@ -14,7 +14,9 @@ import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
@@ -23,6 +25,8 @@ import com.journeyapps.barcodescanner.ScanContract;
 import com.journeyapps.barcodescanner.ScanOptions;
 
 public class MainActivity extends AppCompatActivity {
+
+    private static final int PERMISSION_REQ_CODE = 1001;
 
     private WebView webView;
     private LinearLayout connectLayout;
@@ -54,17 +58,36 @@ public class MainActivity extends AppCompatActivity {
         txtLastUrl = findViewById(R.id.txtLastUrl);
         prefs = getSharedPreferences("melody_remote_prefs", MODE_PRIVATE);
 
-        checkSystemPermissions();
         setupWebView();
 
-        btnScan.setOnClickListener(v -> startScanner());
+        btnScan.setOnClickListener(v -> {
+            if (hasRequiredPermissions()) {
+                startScanner();
+            } else {
+                requestSystemPermissions();
+            }
+        });
+
         btnRescan.setOnClickListener(v -> {
             webView.setVisibility(View.GONE);
             btnRescan.setVisibility(View.GONE);
             connectLayout.setVisibility(View.VISIBLE);
-            startScanner();
+            if (hasRequiredPermissions()) {
+                startScanner();
+            } else {
+                requestSystemPermissions();
+            }
         });
 
+        // ขอสิทธิ์ตัวเครื่องก่อนเริ่มทำงาน
+        if (!hasRequiredPermissions()) {
+            requestSystemPermissions();
+        } else {
+            checkSavedUrlAndLoad();
+        }
+    }
+
+    private void checkSavedUrlAndLoad() {
         String savedUrl = prefs.getString("saved_url", null);
         if (savedUrl != null && !savedUrl.isEmpty()) {
             txtLastUrl.setText("URL ล่าสุด: " + savedUrl);
@@ -81,11 +104,16 @@ public class MainActivity extends AppCompatActivity {
 
         webView.setWebViewClient(new WebViewClient());
 
+        // บังคับตอบรับสิทธิ์ WebRTC Audio ให้อัตโนมัติทุกครั้งที่หน้าร้องขอ
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onPermissionRequest(final PermissionRequest request) {
                 MainActivity.this.runOnUiThread(() -> {
-                    request.grant(request.getResources());
+                    if (hasRequiredPermissions()) {
+                        request.grant(request.getResources());
+                    } else {
+                        request.deny();
+                    }
                 });
             }
         });
@@ -106,13 +134,35 @@ public class MainActivity extends AppCompatActivity {
         barcodeLauncher.launch(options);
     }
 
-    private void checkSystemPermissions() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED ||
-            ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this, new String[]{
-                    Manifest.permission.RECORD_AUDIO,
-                    Manifest.permission.CAMERA
-            }, 101);
+    private boolean hasRequiredPermissions() {
+        return ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED &&
+               ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private void requestSystemPermissions() {
+        ActivityCompat.requestPermissions(this, new String[]{
+                Manifest.permission.RECORD_AUDIO,
+                Manifest.permission.CAMERA,
+                Manifest.permission.MODIFY_AUDIO_SETTINGS
+        }, PERMISSION_REQ_CODE);
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == PERMISSION_REQ_CODE) {
+            boolean allGranted = true;
+            for (int result : grantResults) {
+                if (result != PackageManager.PERMISSION_GRANTED) {
+                    allGranted = false;
+                    break;
+                }
+            }
+            if (allGranted) {
+                checkSavedUrlAndLoad();
+            } else {
+                Toast.makeText(this, "กรุณากดอนุญาตการใช้ไมโครโฟนและกล้องเพื่อใช้งานแอป", Toast.LENGTH_LONG).show();
+            }
         }
     }
 
