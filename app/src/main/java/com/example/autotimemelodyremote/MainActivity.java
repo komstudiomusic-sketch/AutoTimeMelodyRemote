@@ -4,10 +4,8 @@ import android.Manifest;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
-import android.util.Log;
 import android.view.View;
 import android.view.WindowManager;
-import android.webkit.ConsoleMessage;
 import android.webkit.PermissionRequest;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
@@ -29,7 +27,6 @@ import com.journeyapps.barcodescanner.ScanOptions;
 public class MainActivity extends AppCompatActivity {
 
     private static final int PERMISSION_REQ_CODE = 1001;
-    private static final String TAG = "MelodyRemote";
 
     private WebView webView;
     private LinearLayout connectLayout;
@@ -52,6 +49,7 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        // ป้องกันหน้าจอดับ
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
         webView = findViewById(R.id.webView);
@@ -82,6 +80,7 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
+        // ตรวจสอบสิทธิ์เครื่อง ถ้ามีแล้วค่อยโหลดหน้าเว็บ
         if (!hasRequiredPermissions()) {
             requestSystemPermissions();
         } else {
@@ -106,24 +105,19 @@ public class MainActivity extends AppCompatActivity {
         settings.setAllowFileAccess(true);
         settings.setAllowContentAccess(true);
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
+        
+        // ปลดล็อก Mixed Content สำหรับการเรียกสิทธิ์ข้ามโปรโตคอล
+        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
 
         webView.setWebViewClient(new WebViewClient());
 
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onPermissionRequest(final PermissionRequest request) {
-                Log.d(TAG, "onPermissionRequest called for: " + java.util.Arrays.toString(request.getResources()));
+                // บังคับอนุมัติสิทธิ์ทุกทรัพยากร (ทั้งไมค์และกล้อง) ทันทีที่หน้าร้องขอ
                 MainActivity.this.runOnUiThread(() -> {
-                    // อนุมัติสิทธิ์ทุกทรัพยากร (Audio & Video) โดยตรง
                     request.grant(request.getResources());
                 });
-            }
-
-            @Override
-            public boolean onConsoleMessage(ConsoleMessage consoleMessage) {
-                Log.d(TAG, "Web Console: " + consoleMessage.message() + " -- From line "
-                        + consoleMessage.lineNumber() + " of " + consoleMessage.sourceId());
-                return true;
             }
         });
     }
@@ -170,7 +164,7 @@ public class MainActivity extends AppCompatActivity {
             if (allGranted) {
                 checkSavedUrlAndLoad();
             } else {
-                Toast.makeText(this, "กรุณากดอนุญาตการใช้ไมโครโฟนและกล้องเพื่อใช้งานแอป", Toast.LENGTH_LONG).show();
+                Toast.makeText(this, "กรุณากดอนุญาตการใช้ไมโครโฟนและกล้อง", Toast.LENGTH_LONG).show();
             }
         }
     }
