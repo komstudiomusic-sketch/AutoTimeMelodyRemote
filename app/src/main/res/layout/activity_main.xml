@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#F8FAFC">
+
+    <WebView
+        android:id="@+id/webView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone" />
+
+    <Button
+        android:id="@+id/btnRescan"
+        android:layout_width="wrap_content"
+        android:layout_height="40dp"
+        android:text="📷 สแกนใหม่"
+        android:textSize="12sp"
+        android:textColor="#FFFFFF"
+        android:background="#0891B2"
+        android:layout_alignParentTop="true"
+        android:layout_alignParentEnd="true"
+        android:layout_margin="12dp"
+        android:elevation="6dp"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:id="@+id/connectLayout"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:padding="24dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Auto Time Melody"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:textColor="#0E7490"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="ระบบรีโมทควบคุมและกระจายเสียง"
+            android:textSize="14sp"
+            android:textColor="#64748B"
+            android:layout_marginBottom="32dp" />
+
+        <Button
+            android:id="@+id/btnScan"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:text="📷 สแกน QR Code จากหน้าจอคอม"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:textColor="#FFFFFF"
+            android:background="#06B6D4"
+            android:layout_marginBottom="16dp" />
+
+        <TextView
+            android:id="@+id/txtLastUrl"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="ยังไม่มีประวัติการเชื่อมต่อ"
+            android:textSize="12sp"
+            android:textColor="#94A3B8" />
+
+    </LinearLayout>
+
+</RelativeLayout>
