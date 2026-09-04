@@ -4,8 +4,10 @@ import android.Manifest;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.View;
 import android.view.WindowManager;
+import android.webkit.ConsoleMessage;
 import android.webkit.PermissionRequest;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
@@ -27,6 +29,7 @@ import com.journeyapps.barcodescanner.ScanOptions;
 public class MainActivity extends AppCompatActivity {
 
     private static final int PERMISSION_REQ_CODE = 1001;
+    private static final String TAG = "MelodyRemote";
 
     private WebView webView;
     private LinearLayout connectLayout;
@@ -79,7 +82,6 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        // ขอสิทธิ์ตัวเครื่องก่อนเริ่มทำงาน
         if (!hasRequiredPermissions()) {
             requestSystemPermissions();
         } else {
@@ -99,22 +101,29 @@ public class MainActivity extends AppCompatActivity {
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
+        settings.setDatabaseEnabled(true);
         settings.setMediaPlaybackRequiresUserGesture(false);
+        settings.setAllowFileAccess(true);
+        settings.setAllowContentAccess(true);
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
 
         webView.setWebViewClient(new WebViewClient());
 
-        // บังคับตอบรับสิทธิ์ WebRTC Audio ให้อัตโนมัติทุกครั้งที่หน้าร้องขอ
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onPermissionRequest(final PermissionRequest request) {
+                Log.d(TAG, "onPermissionRequest called for: " + java.util.Arrays.toString(request.getResources()));
                 MainActivity.this.runOnUiThread(() -> {
-                    if (hasRequiredPermissions()) {
-                        request.grant(request.getResources());
-                    } else {
-                        request.deny();
-                    }
+                    // อนุมัติสิทธิ์ทุกทรัพยากร (Audio & Video) โดยตรง
+                    request.grant(request.getResources());
                 });
+            }
+
+            @Override
+            public boolean onConsoleMessage(ConsoleMessage consoleMessage) {
+                Log.d(TAG, "Web Console: " + consoleMessage.message() + " -- From line "
+                        + consoleMessage.lineNumber() + " of " + consoleMessage.sourceId());
+                return true;
             }
         });
     }
