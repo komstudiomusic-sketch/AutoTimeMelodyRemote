@@ -3,10 +3,12 @@ package com.example.autotimemelodyremote;
 import android.Manifest;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.net.http.SslError;
 import android.os.Bundle;
 import android.view.View;
 import android.view.WindowManager;
 import android.webkit.PermissionRequest;
+import android.webkit.SslErrorHandler;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -49,7 +51,6 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        // ป้องกันหน้าจอดับ
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
         webView = findViewById(R.id.webView);
@@ -80,7 +81,6 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        // ตรวจสอบสิทธิ์เครื่อง ถ้ามีแล้วค่อยโหลดหน้าเว็บ
         if (!hasRequiredPermissions()) {
             requestSystemPermissions();
         } else {
@@ -105,16 +105,20 @@ public class MainActivity extends AppCompatActivity {
         settings.setAllowFileAccess(true);
         settings.setAllowContentAccess(true);
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
-        
-        // ปลดล็อก Mixed Content สำหรับการเรียกสิทธิ์ข้ามโปรโตคอล
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
 
-        webView.setWebViewClient(new WebViewClient());
+        // จัดการฝั่ง Client: ข้ามหน้าต่างแจ้งเตือน SSL Self-Signed
+        webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
+                handler.proceed();
+            }
+        });
 
+        // จัดการฝั่ง ChromeClient: อนุมัติสิทธิ์ WebRTC ไมค์และกล้องให้อัตโนมัติ
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onPermissionRequest(final PermissionRequest request) {
-                // บังคับอนุมัติสิทธิ์ทุกทรัพยากร (ทั้งไมค์และกล้อง) ทันทีที่หน้าร้องขอ
                 MainActivity.this.runOnUiThread(() -> {
                     request.grant(request.getResources());
                 });
