@@ -31,7 +31,8 @@ import com.journeyapps.barcodescanner.ScanOptions;
 public class MainActivity extends AppCompatActivity {
 
     private static final int PERMISSION_REQ_CODE = 1001;
-    private static final int SAMPLE_RATE = 44100; // 44kHz คุณภาพเสียงคมชัดำ
+    // ปรับความละเอียดเสียงไมค์เป็น 44.1 kHz (CD Quality) คมชัดระดับโปร
+    private static final int SAMPLE_RATE = 44100;
 
     private WebView webView;
     private LinearLayout connectLayout;
@@ -116,7 +117,6 @@ public class MainActivity extends AppCompatActivity {
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
 
-        // สะพานเชื่อมคำสั่งระหว่างหน้าเว็บกับไมโครโฟนเครื่อง
         webView.addJavascriptInterface(new AndroidAudioBridge(), "AndroidAudio");
         webView.setWebViewClient(new WebViewClient());
     }
@@ -147,7 +147,7 @@ public class MainActivity extends AppCompatActivity {
         if (!hasRequiredPermissions()) return;
 
         try {
-            int bufferSize = AudioRecord.getMinBufferSize(
+            int minBufSize = AudioRecord.getMinBufferSize(
                     SAMPLE_RATE,
                     AudioFormat.CHANNEL_IN_MONO,
                     AudioFormat.ENCODING_PCM_16BIT
@@ -158,7 +158,7 @@ public class MainActivity extends AppCompatActivity {
                     SAMPLE_RATE,
                     AudioFormat.CHANNEL_IN_MONO,
                     AudioFormat.ENCODING_PCM_16BIT,
-                    Math.max(bufferSize, 2048)
+                    Math.max(minBufSize, 4096)
             );
 
             if (audioRecord.getState() != AudioRecord.STATE_INITIALIZED) {
@@ -169,7 +169,8 @@ public class MainActivity extends AppCompatActivity {
             isRecording = true;
 
             recordingThread = new Thread(() -> {
-                byte[] audioBuffer = new byte[1024]; // ส่งก้อนสั้นเพื่อ Latency ต่ำมาก
+                // ก้อนข้อมูล 2048 bytes ที่ 44.1kHz จะให้ latency ต่ำมากเพียง ~23ms
+                byte[] audioBuffer = new byte[2048];
                 while (isRecording) {
                     int readBytes = audioRecord.read(audioBuffer, 0, audioBuffer.length);
                     if (readBytes > 0) {
