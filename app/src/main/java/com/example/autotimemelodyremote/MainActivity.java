@@ -31,8 +31,11 @@ import com.journeyapps.barcodescanner.ScanOptions;
 public class MainActivity extends AppCompatActivity {
 
     private static final int PERMISSION_REQ_CODE = 1001;
-    // ปรับความละเอียดเสียงไมค์เป็น 44.1 kHz (CD Quality) คมชัดระดับโปร
+
+    // ตั้งค่า Sampling Rate ระดับสตูดิโอ 44.1 kHz
     private static final int SAMPLE_RATE = 44100;
+    // บัฟเฟอร์ขนาด 4,410 ไบต์ = 50ms ของเสียง PCM 16-bit Mono (ส่ง 20 ครั้ง/วินาที ไม่สะดุด)
+    private static final int CHUNK_SIZE = 4410;
 
     private WebView webView;
     private LinearLayout connectLayout;
@@ -41,7 +44,7 @@ public class MainActivity extends AppCompatActivity {
     private TextView txtLastUrl;
     private SharedPreferences prefs;
 
-    // Native Audio Engine
+    // Native Audio Recording Engine
     private AudioRecord audioRecord;
     private boolean isRecording = false;
     private Thread recordingThread;
@@ -117,6 +120,7 @@ public class MainActivity extends AppCompatActivity {
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
 
+        // เชื่อมคำสั่ง JavaScript จาก remote.html มายังระบบบันทึกเสียง Android
         webView.addJavascriptInterface(new AndroidAudioBridge(), "AndroidAudio");
         webView.setWebViewClient(new WebViewClient());
     }
@@ -153,12 +157,15 @@ public class MainActivity extends AppCompatActivity {
                     AudioFormat.ENCODING_PCM_16BIT
             );
 
+            // จอง Internal Buffer ให้มีขนาดใหญ่พอรองรับข้อมูล 44.1kHz
+            int internalBufferSize = Math.max(minBufSize, CHUNK_SIZE * 4);
+
             audioRecord = new AudioRecord(
                     MediaRecorder.AudioSource.MIC,
                     SAMPLE_RATE,
                     AudioFormat.CHANNEL_IN_MONO,
                     AudioFormat.ENCODING_PCM_16BIT,
-                    Math.max(minBufSize, 4096)
+                    internalBufferSize
             );
 
             if (audioRecord.getState() != AudioRecord.STATE_INITIALIZED) {
@@ -169,14 +176,16 @@ public class MainActivity extends AppCompatActivity {
             isRecording = true;
 
             recordingThread = new Thread(() -> {
-                // ก้อนข้อมูล 2048 bytes ที่ 44.1kHz จะให้ latency ต่ำมากเพียง ~23ms
-                byte[] audioBuffer = new byte[2048];
+                byte[] audioBuffer = new byte[CHUNK_SIZE];
                 while (isRecording) {
                     int readBytes = audioRecord.read(audioBuffer, 0, audioBuffer.length);
                     if (readBytes > 0) {
                         String base64Chunk = Base64.encodeToString(audioBuffer, 0, readBytes, Base64.NO_WRAP);
                         runOnUiThread(() -> {
-                            webView.evaluateJavascript("if(window.sendAudioChunk){window.sendAudioChunk('" + base64Chunk + "');}", null);
+                            webView.evaluateJavascript(
+                                "if(window.sendAudioChunk){window.sendAudioChunk('" + base64Chunk + "');}", 
+                                null
+                            );
                         });
                     }
                 }
