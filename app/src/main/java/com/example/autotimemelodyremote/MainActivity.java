@@ -31,7 +31,7 @@ import com.journeyapps.barcodescanner.ScanOptions;
 public class MainActivity extends AppCompatActivity {
 
     private static final int PERMISSION_REQ_CODE = 1001;
-    private static final int SAMPLE_RATE = 16000; // 16kHz คุณภาพเสียงคมชัด Latency ต่ำ
+    private static final int SAMPLE_RATE = 44100; // 44kHz คุณภาพเสียงคมชัดำ
 
     private WebView webView;
     private LinearLayout connectLayout;
