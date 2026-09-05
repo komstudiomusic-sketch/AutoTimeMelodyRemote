@@ -1,14 +1,17 @@
 package com.example.autotimemelodyremote;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
-import android.os.Build;
+import android.media.AudioFormat;
+import android.media.AudioRecord;
+import android.media.MediaRecorder;
 import android.os.Bundle;
+import android.util.Base64;
 import android.view.View;
 import android.view.WindowManager;
-import android.webkit.PermissionRequest;
-import android.webkit.WebChromeClient;
+import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -28,6 +31,7 @@ import com.journeyapps.barcodescanner.ScanOptions;
 public class MainActivity extends AppCompatActivity {
 
     private static final int PERMISSION_REQ_CODE = 1001;
+    private static final int SAMPLE_RATE = 16000; // 16kHz คุณภาพเสียงคมชัด Latency ต่ำ
 
     private WebView webView;
     private LinearLayout connectLayout;
@@ -35,6 +39,11 @@ public class MainActivity extends AppCompatActivity {
     private Button btnRescan;
     private TextView txtLastUrl;
     private SharedPreferences prefs;
+
+    // Native Audio Engine
+    private AudioRecord audioRecord;
+    private boolean isRecording = false;
+    private Thread recordingThread;
 
     private final androidx.activity.result.ActivityResultLauncher<ScanOptions> barcodeLauncher =
         registerForActivityResult(new ScanContract(), result -> {
@@ -70,6 +79,7 @@ public class MainActivity extends AppCompatActivity {
         });
 
         btnRescan.setOnClickListener(v -> {
+            stopNativeAudio();
             webView.setVisibility(View.GONE);
             btnRescan.setVisibility(View.GONE);
             connectLayout.setVisibility(View.VISIBLE);
@@ -95,32 +105,20 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    @SuppressLint({"SetJavaScriptEnabled", "JavascriptInterface"})
     private void setupWebView() {
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
         settings.setDatabaseEnabled(true);
-        settings.setMediaPlaybackRequiresUserGesture(false);
         settings.setAllowFileAccess(true);
         settings.setAllowContentAccess(true);
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
-        
-        // อนุญาต Mixed Content เพื่อให้ HTTP ทำงานร่วมกับ API ต่างๆ ได้
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
-        settings.setAllowFileAccessFromFileURLs(true);
-        settings.setAllowUniversalAccessFromFileURLs(true);
 
+        // สะพานเชื่อมคำสั่งระหว่างหน้าเว็บกับไมโครโฟนเครื่อง
+        webView.addJavascriptInterface(new AndroidAudioBridge(), "AndroidAudio");
         webView.setWebViewClient(new WebViewClient());
-
-        webView.setWebChromeClient(new WebChromeClient() {
-            @Override
-            public void onPermissionRequest(final PermissionRequest request) {
-                // ตอบรับสิทธิ์ทรัพยากรทุกตัว (รวมถึง RESOURCE_AUDIO_CAPTURE) ให้หน้าเว็บทันที
-                MainActivity.this.runOnUiThread(() -> {
-                    request.grant(request.getResources());
-                });
-            }
-        });
     }
 
     private void loadWebPage(String url) {
@@ -128,6 +126,81 @@ public class MainActivity extends AppCompatActivity {
         webView.setVisibility(View.VISIBLE);
         btnRescan.setVisibility(View.VISIBLE);
         webView.loadUrl(url);
+    }
+
+    // ================= Native Audio Logic =================
+    public class AndroidAudioBridge {
+        @JavascriptInterface
+        public void startRecording() {
+            startNativeAudio();
+        }
+
+        @JavascriptInterface
+        public void stopRecording() {
+            stopNativeAudio();
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private synchronized void startNativeAudio() {
+        if (isRecording) return;
+        if (!hasRequiredPermissions()) return;
+
+        try {
+            int bufferSize = AudioRecord.getMinBufferSize(
+                    SAMPLE_RATE,
+                    AudioFormat.CHANNEL_IN_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT
+            );
+
+            audioRecord = new AudioRecord(
+                    MediaRecorder.AudioSource.MIC,
+                    SAMPLE_RATE,
+                    AudioFormat.CHANNEL_IN_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT,
+                    Math.max(bufferSize, 2048)
+            );
+
+            if (audioRecord.getState() != AudioRecord.STATE_INITIALIZED) {
+                return;
+            }
+
+            audioRecord.startRecording();
+            isRecording = true;
+
+            recordingThread = new Thread(() -> {
+                byte[] audioBuffer = new byte[1024]; // ส่งก้อนสั้นเพื่อ Latency ต่ำมาก
+                while (isRecording) {
+                    int readBytes = audioRecord.read(audioBuffer, 0, audioBuffer.length);
+                    if (readBytes > 0) {
+                        String base64Chunk = Base64.encodeToString(audioBuffer, 0, readBytes, Base64.NO_WRAP);
+                        runOnUiThread(() -> {
+                            webView.evaluateJavascript("if(window.sendAudioChunk){window.sendAudioChunk('" + base64Chunk + "');}", null);
+                        });
+                    }
+                }
+            });
+            recordingThread.setPriority(Thread.MAX_PRIORITY);
+            recordingThread.start();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private synchronized void stopNativeAudio() {
+        isRecording = false;
+        if (recordingThread != null) {
+            recordingThread.interrupt();
+            recordingThread = null;
+        }
+        if (audioRecord != null) {
+            try {
+                audioRecord.stop();
+                audioRecord.release();
+            } catch (Exception ignored) {}
+            audioRecord = null;
+        }
     }
 
     private void startScanner() {
@@ -171,8 +244,15 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override
+    protected void onDestroy() {
+        stopNativeAudio();
+        super.onDestroy();
+    }
+
+    @Override
     public void onBackPressed() {
         if (webView.getVisibility() == View.VISIBLE) {
+            stopNativeAudio();
             webView.setVisibility(View.GONE);
             btnRescan.setVisibility(View.GONE);
             connectLayout.setVisibility(View.VISIBLE);
