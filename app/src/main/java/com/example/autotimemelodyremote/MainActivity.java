@@ -32,10 +32,10 @@ public class MainActivity extends AppCompatActivity {
 
     private static final int PERMISSION_REQ_CODE = 1001;
 
-    // 16000 Hz (HD Voice) มาตรฐานที่ฮาร์ดแวร์ Android ทุกรุ่นรองรับ 100%
+    // 16000 Hz มาตรฐาน PCM 16-bit Mono
     private static final int SAMPLE_RATE = 16000;
-    // ก้อนข้อมูล 1600 ไบต์ = 50ms ของเสียง PCM 16-bit Mono (ส่ง 20 ครั้ง/วินาที เบาเครื่องและไม่สะดุด)
-    private static final int CHUNK_SIZE = 1600;
+    // ก้อนข้อมูล 3200 ไบต์ = 100ms ส่ง 10 ครั้ง/วินาที ช่วยให้ WebView และ Network ลื่นไหล ไม่สะดุด
+    private static final int CHUNK_SIZE = 3200;
 
     private WebView webView;
     private LinearLayout connectLayout;
@@ -156,10 +156,12 @@ public class MainActivity extends AppCompatActivity {
                     AudioFormat.ENCODING_PCM_16BIT
             );
 
-            int internalBufferSize = Math.max(minBufSize, CHUNK_SIZE * 4);
+            // ขยาย Buffer ของ AudioRecord ให้จุได้ 8 เท่าของขนาดก้อน ป้องกันเสียงขาดช่วง
+            int internalBufferSize = Math.max(minBufSize, CHUNK_SIZE * 8);
 
+            // ใช้ VOICE_COMMUNICATION เพื่อตัด DC Offset และลดเสียงลมปะทะ
             audioRecord = new AudioRecord(
-                    MediaRecorder.AudioSource.MIC,
+                    MediaRecorder.AudioSource.VOICE_COMMUNICATION,
                     SAMPLE_RATE,
                     AudioFormat.CHANNEL_IN_MONO,
                     AudioFormat.ENCODING_PCM_16BIT,
@@ -179,7 +181,9 @@ public class MainActivity extends AppCompatActivity {
                     int readBytes = audioRecord.read(audioBuffer, 0, audioBuffer.length);
                     if (readBytes > 0) {
                         String base64Chunk = Base64.encodeToString(audioBuffer, 0, readBytes, Base64.NO_WRAP);
-                        runOnUiThread(() -> {
+                        
+                        // ส่งคำสั่งเข้าเธรดของ WebView โดยตรง
+                        webView.post(() -> {
                             webView.evaluateJavascript(
                                 "if(window.sendAudioChunk){window.sendAudioChunk('" + base64Chunk + "');}", 
                                 null
@@ -188,7 +192,8 @@ public class MainActivity extends AppCompatActivity {
                     }
                 }
             });
-            recordingThread.setPriority(Thread.MAX_PRIORITY);
+
+            recordingThread.setPriority(Thread.NORM_PRIORITY + 2);
             recordingThread.start();
 
         } catch (Exception e) {
