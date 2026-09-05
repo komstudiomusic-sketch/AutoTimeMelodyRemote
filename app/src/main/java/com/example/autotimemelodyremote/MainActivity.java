@@ -32,10 +32,10 @@ public class MainActivity extends AppCompatActivity {
 
     private static final int PERMISSION_REQ_CODE = 1001;
 
-    // ตั้งค่า Sampling Rate ระดับสตูดิโอ 44.1 kHz
-    private static final int SAMPLE_RATE = 44100;
-    // บัฟเฟอร์ขนาด 4,410 ไบต์ = 50ms ของเสียง PCM 16-bit Mono (ส่ง 20 ครั้ง/วินาที ไม่สะดุด)
-    private static final int CHUNK_SIZE = 4410;
+    // 16000 Hz (HD Voice) มาตรฐานที่ฮาร์ดแวร์ Android ทุกรุ่นรองรับ 100%
+    private static final int SAMPLE_RATE = 16000;
+    // ก้อนข้อมูล 1600 ไบต์ = 50ms ของเสียง PCM 16-bit Mono (ส่ง 20 ครั้ง/วินาที เบาเครื่องและไม่สะดุด)
+    private static final int CHUNK_SIZE = 1600;
 
     private WebView webView;
     private LinearLayout connectLayout;
@@ -44,7 +44,7 @@ public class MainActivity extends AppCompatActivity {
     private TextView txtLastUrl;
     private SharedPreferences prefs;
 
-    // Native Audio Recording Engine
+    // Native Audio Engine
     private AudioRecord audioRecord;
     private boolean isRecording = false;
     private Thread recordingThread;
@@ -120,7 +120,6 @@ public class MainActivity extends AppCompatActivity {
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
 
-        // เชื่อมคำสั่ง JavaScript จาก remote.html มายังระบบบันทึกเสียง Android
         webView.addJavascriptInterface(new AndroidAudioBridge(), "AndroidAudio");
         webView.setWebViewClient(new WebViewClient());
     }
@@ -132,7 +131,7 @@ public class MainActivity extends AppCompatActivity {
         webView.loadUrl(url);
     }
 
-    // ================= Native Audio Logic =================
+    // ================= Native Audio Bridge =================
     public class AndroidAudioBridge {
         @JavascriptInterface
         public void startRecording() {
@@ -157,7 +156,6 @@ public class MainActivity extends AppCompatActivity {
                     AudioFormat.ENCODING_PCM_16BIT
             );
 
-            // จอง Internal Buffer ให้มีขนาดใหญ่พอรองรับข้อมูล 44.1kHz
             int internalBufferSize = Math.max(minBufSize, CHUNK_SIZE * 4);
 
             audioRecord = new AudioRecord(
