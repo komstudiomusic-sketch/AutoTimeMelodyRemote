@@ -38,11 +38,11 @@ public class MainActivity extends AppCompatActivity {
 
     private static final int PERMISSION_REQ_CODE = 1001;
 
-    // ตั้งค่า 44,100 Hz (44.1 kHz - คุณภาพเสียงระดับ CD Audio)
+    // ตั้งค่า 44,100 Hz (44.1 kHz - คุณภาพเสียงระดับ CD Audio)[cite: 2]
     private static final int SAMPLE_RATE = 44100;
-    // ก้อนข้อมูล 8820 ไบต์ = 100ms ส่ง 10 ครั้ง/วินาที
+    // ก้อนข้อมูล 8820 ไบต์ = 100ms ส่ง 10 ครั้ง/วินาที[cite: 2]
     private static final int CHUNK_SIZE = 8820;
-    // จำกัดเวลาบันทึกสูงสุด 60 วินาที
+    // จำกัดเวลาบันทึกสูงสุด 60 วินาที[cite: 2]
     private static final long MAX_RECORD_DURATION_MS = 60000;
 
     private WebView webView;
@@ -191,7 +191,25 @@ public class MainActivity extends AppCompatActivity {
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
 
         webView.addJavascriptInterface(new AndroidAudioBridge(), "AndroidAudio");
-        webView.setWebViewClient(new WebViewClient());
+        
+        // ดักจับและระงับไม่ให้แสดงหน้าเว็บ Error ของเบราว์เซอร์[cite: 2]
+        webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
+                view.stopLoading();
+                view.loadUrl("about:blank");
+                handleConnectionFailure();
+            }
+
+            @Override
+            public void onReceivedHttpError(WebView view, android.webkit.WebResourceRequest request, android.webkit.WebResourceResponse errorResponse) {
+                if (request.isForMainFrame()) {
+                    view.stopLoading();
+                    view.loadUrl("about:blank");
+                    handleConnectionFailure();
+                }
+            }
+        });
     }
 
     private void loadWebPage(String url) {
@@ -199,6 +217,19 @@ public class MainActivity extends AppCompatActivity {
         webView.setVisibility(View.VISIBLE);
         btnRescan.setVisibility(View.VISIBLE);
         webView.loadUrl(url);
+    }
+
+    private void handleConnectionFailure() {
+        runOnUiThread(() -> {
+            if (webView.getVisibility() == View.VISIBLE) {
+                stopNativeAudio();
+                webView.setVisibility(View.GONE);
+                if (btnRescan != null) btnRescan.setVisibility(View.GONE);
+                if (connectLayout != null) connectLayout.setVisibility(View.VISIBLE);
+                
+                Toast.makeText(MainActivity.this, "ไม่พบเซิร์ฟเวอร์ กรุณาตรวจสอบการเชื่อมต่อ Wi-Fi หรือ IP", Toast.LENGTH_LONG).show();
+            }
+        });
     }
 
     public class AndroidAudioBridge {
@@ -227,7 +258,6 @@ public class MainActivity extends AppCompatActivity {
 
             int internalBufferSize = Math.max(minBufSize, CHUNK_SIZE * 8);
 
-            // ใช้ MediaRecorder.AudioSource.MIC เพื่อเสียงที่เปิดกว้าง ชัดเจน และเป็นธรรมชาติ
             audioRecord = new AudioRecord(
                     MediaRecorder.AudioSource.MIC,
                     SAMPLE_RATE,
