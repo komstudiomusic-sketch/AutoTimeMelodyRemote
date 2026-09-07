@@ -4,13 +4,16 @@ import android.Manifest;
 import android.annotation.SuppressLint;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.graphics.Color;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
 import android.media.audiofx.AcousticEchoCanceler;
 import android.os.Bundle;
 import android.util.Base64;
+import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
@@ -34,17 +37,15 @@ public class MainActivity extends AppCompatActivity {
 
     private static final int PERMISSION_REQ_CODE = 1001;
 
-    // 16000 Hz มาตรฐาน PCM 16-bit Mono
     private static final int SAMPLE_RATE = 16000;
-    // ก้อนข้อมูล 3200 ไบต์ = 100ms ส่ง 10 ครั้ง/วินาที
     private static final int CHUNK_SIZE = 3200;
 
     private WebView webView;
     private LinearLayout connectLayout;
     private Button btnScan;
     private Button btnRescan;
-    private Button btnConnectManual;
     private EditText edtIpUrl;
+    private Button btnConnectManual;
     private TextView txtLastUrl;
     private SharedPreferences prefs;
 
@@ -73,10 +74,11 @@ public class MainActivity extends AppCompatActivity {
         connectLayout = findViewById(R.id.connectLayout);
         btnScan = findViewById(R.id.btnScan);
         btnRescan = findViewById(R.id.btnRescan);
-        btnConnectManual = findViewById(R.id.btnConnectManual);
-        edtIpUrl = findViewById(R.id.edtIpUrl);
         txtLastUrl = findViewById(R.id.txtLastUrl);
         prefs = getSharedPreferences("melody_remote_prefs", MODE_PRIVATE);
+
+        // สร้างช่องกรอก IP และปุ่มเชื่อมต่อแบบไดนามิก ป้องกัน Error จากไฟล์ XML
+        setupManualInputUI();
 
         setupWebView();
 
@@ -86,18 +88,6 @@ public class MainActivity extends AppCompatActivity {
             } else {
                 requestSystemPermissions();
             }
-        });
-
-        // ปุ่มเชื่อมต่อแบบกรอก IP หรือ ลิงก์ภายนอกเอง
-        btnConnectManual.setOnClickListener(v -> {
-            String input = edtIpUrl.getText().toString().trim();
-            if (input.isEmpty()) {
-                Toast.makeText(this, "กรุณากรอก IP หรือ URL", Toast.LENGTH_SHORT).show();
-                return;
-            }
-
-            String targetUrl = formatUrl(input);
-            saveAndConnect(targetUrl);
         });
 
         btnRescan.setOnClickListener(v -> {
@@ -114,16 +104,53 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    private void setupManualInputUI() {
+        TextView txtOr = new TextView(this);
+        txtOr.setText("— หรือกรอก IP / ลิงก์ภายนอก —");
+        txtOr.setTextColor(Color.parseColor("#777777"));
+        txtOr.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams paramsOr = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        paramsOr.setMargins(0, 32, 0, 16);
+        connectLayout.addView(txtOr, paramsOr);
+
+        edtIpUrl = new EditText(this);
+        edtIpUrl.setHint("เช่น 192.168.1.100 หรือ https://...");
+        edtIpUrl.setHintTextColor(Color.parseColor("#666666"));
+        edtIpUrl.setTextColor(Color.WHITE);
+        edtIpUrl.setBackgroundColor(Color.parseColor("#222222"));
+        edtIpUrl.setPadding(30, 25, 30, 25);
+        edtIpUrl.setSingleLine(true);
+        LinearLayout.LayoutParams paramsEdt = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        connectLayout.addView(edtIpUrl, paramsEdt);
+
+        btnConnectManual = new Button(this);
+        btnConnectManual.setText("เชื่อมต่อ");
+        btnConnectManual.setTextColor(Color.WHITE);
+        btnConnectManual.setBackgroundColor(Color.parseColor("#2E7D32"));
+        LinearLayout.LayoutParams paramsBtn = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        paramsBtn.setMargins(0, 16, 0, 0);
+        connectLayout.addView(btnConnectManual, paramsBtn);
+
+        btnConnectManual.setOnClickListener(v -> {
+            String input = edtIpUrl.getText().toString().trim();
+            if (input.isEmpty()) {
+                Toast.makeText(this, "กรุณากรอก IP หรือ URL", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            saveAndConnect(formatUrl(input));
+        });
+    }
+
     private String formatUrl(String input) {
-        // หากผู้ใช้พิมพ์เป็น http:// หรือ https:// เข้ามาอยู่แล้ว ให้ใช้ค่านั้นได้ทันที
         if (input.startsWith("http://") || input.startsWith("https://")) {
             return input;
         }
-        // หากกรอกเฉพาะ IP หรือ IP:Port
         if (input.contains(":")) {
             return "http://" + input;
         } else {
-            // ค่าเริ่มต้นของพอร์ต Auto Time Melody (พอร์ต 3000)
             return "http://" + input + ":3000";
         }
     }
@@ -138,7 +165,7 @@ public class MainActivity extends AppCompatActivity {
         String savedUrl = prefs.getString("saved_url", null);
         if (savedUrl != null && !savedUrl.isEmpty()) {
             txtLastUrl.setText("URL ล่าสุด: " + savedUrl);
-            edtIpUrl.setText(savedUrl);
+            if (edtIpUrl != null) edtIpUrl.setText(savedUrl);
             loadWebPage(savedUrl);
         }
     }
@@ -165,7 +192,6 @@ public class MainActivity extends AppCompatActivity {
         webView.loadUrl(url);
     }
 
-    // ================= Native Audio Bridge =================
     public class AndroidAudioBridge {
         @JavascriptInterface
         public void startRecording() {
@@ -192,7 +218,6 @@ public class MainActivity extends AppCompatActivity {
 
             int internalBufferSize = Math.max(minBufSize, CHUNK_SIZE * 8);
 
-            // ใช้ VOICE_RECOGNITION โฟกัสเฉพาะเสียงพูดระยะประชิด
             audioRecord = new AudioRecord(
                     MediaRecorder.AudioSource.VOICE_RECOGNITION,
                     SAMPLE_RATE,
@@ -205,7 +230,6 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
 
-            // เปิดใช้งานระบบตัดเสียงสะท้อน (AEC)
             if (AcousticEchoCanceler.isAvailable()) {
                 try {
                     echoCanceler = AcousticEchoCanceler.create(audioRecord.getAudioSessionId());
