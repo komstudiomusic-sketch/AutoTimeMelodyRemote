@@ -35,7 +35,7 @@ public class MainActivity extends AppCompatActivity {
 
     // 16000 Hz มาตรฐาน PCM 16-bit Mono
     private static final int SAMPLE_RATE = 16000;
-    // ก้อนข้อมูล 3200 ไบต์ = 100ms
+    // ก้อนข้อมูล 3200 ไบต์ = 100ms ส่ง 10 ครั้ง/วินาที ช่วยให้ WebView และ Network ลื่นไหล ไม่สะดุด
     private static final int CHUNK_SIZE = 3200;
 
     private WebView webView;
@@ -158,9 +158,10 @@ public class MainActivity extends AppCompatActivity {
                     AudioFormat.ENCODING_PCM_16BIT
             );
 
+            // ขยาย Buffer ของ AudioRecord ให้จุได้ 8 เท่าของขนาดก้อน ป้องกันเสียงขาดช่วง
             int internalBufferSize = Math.max(minBufSize, CHUNK_SIZE * 8);
 
-            // ใช้ VOICE_RECOGNITION โฟกัสเฉพาะเสียงพูดระยะประชิด
+            // ใช้ VOICE_RECOGNITION เพื่อโฟกัสเสียงพูดระยะใกล้ และลดความไวต่อเสียงแวดล้อม/เสียงลำโพงรอบตัว
             audioRecord = new AudioRecord(
                     MediaRecorder.AudioSource.VOICE_RECOGNITION,
                     SAMPLE_RATE,
@@ -173,7 +174,7 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
 
-            // เปิดใช้งานระบบ Acoustic Echo Canceler ของเครื่อง
+            // เปิดใช้งานระบบตัดเสียงสะท้อน (Acoustic Echo Canceler) ของตัวเครื่อง
             if (AcousticEchoCanceler.isAvailable()) {
                 try {
                     echoCanceler = AcousticEchoCanceler.create(audioRecord.getAudioSessionId());
@@ -190,32 +191,12 @@ public class MainActivity extends AppCompatActivity {
 
             recordingThread = new Thread(() -> {
                 byte[] audioBuffer = new byte[CHUNK_SIZE];
-                // ลดทอนระดับสูงสุด: 0.20f (ลดลง 80%)
-                final float GAIN_FACTOR = 0.20f;
-                // Noise Gate Threshold ตัดเสียงเบาและเสียงสะท้อนรอบตัวทิ้ง
-                final short NOISE_THRESHOLD = 250;
-
                 while (isRecording) {
                     int readBytes = audioRecord.read(audioBuffer, 0, audioBuffer.length);
                     if (readBytes > 0) {
-                        
-                        for (int i = 0; i < readBytes - 1; i += 2) {
-                            short sample = (short) ((audioBuffer[i] & 0xFF) | (audioBuffer[i + 1] << 8));
-                            
-                            // ตัดเสียงรอบข้างที่เบากว่า Threshold ทิ้งเป็น 0
-                            if (Math.abs(sample) < NOISE_THRESHOLD) {
-                                sample = 0;
-                            } else {
-                                // ลดทอนสัญญาณลง 80%
-                                sample = (short) (sample * GAIN_FACTOR);
-                            }
-
-                            audioBuffer[i] = (byte) (sample & 0xFF);
-                            audioBuffer[i + 1] = (byte) ((sample >> 8) & 0xFF);
-                        }
-
                         String base64Chunk = Base64.encodeToString(audioBuffer, 0, readBytes, Base64.NO_WRAP);
                         
+                        // ส่งคำสั่งเข้าเธรดของ WebView โดยตรง
                         webView.post(() -> {
                             webView.evaluateJavascript(
                                 "if(window.sendAudioChunk){window.sendAudioChunk('" + base64Chunk + "');}", 
@@ -241,6 +222,7 @@ public class MainActivity extends AppCompatActivity {
             recordingThread = null;
         }
 
+        // ปิดและคืนทรัพยากรตัวตัดเสียงสะท้อน
         if (echoCanceler != null) {
             try {
                 echoCanceler.setEnabled(false);
