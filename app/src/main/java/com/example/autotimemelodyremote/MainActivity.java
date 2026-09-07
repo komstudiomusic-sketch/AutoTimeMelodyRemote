@@ -192,8 +192,22 @@ public class MainActivity extends AppCompatActivity {
 
         webView.addJavascriptInterface(new AndroidAudioBridge(), "AndroidAudio");
         
-        // ดักจับและระงับไม่ให้แสดงหน้าเว็บ Error ของเบราว์เซอร์[cite: 2]
+        // ดักจับและระงับไม่ให้แสดงหน้าเว็บ Error รวมถึงสั่งบังคับติ๊ก Auto Chime เมื่อโหลดหน้าเว็บเสร็จ
         webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                // บังคับติ๊กถูก Auto Chime และล็อกปุ่มดนตรีนำเป็นค่าเริ่มต้น
+                webView.evaluateJavascript(
+                    "const toggle = document.getElementById('autoChimeToggleMobile');" +
+                    "if(toggle && !toggle.checked) {" +
+                    "   toggle.checked = true;" +
+                    "   if(typeof toggleAutoChimeMobile === 'function') toggleAutoChimeMobile(true);" +
+                    "}", 
+                    null
+                );
+            }
+
             @Override
             public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
                 view.stopLoading();
