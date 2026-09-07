@@ -10,6 +10,8 @@ import android.media.AudioRecord;
 import android.media.MediaRecorder;
 import android.media.audiofx.AcousticEchoCanceler;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Base64;
 import android.view.Gravity;
 import android.view.View;
@@ -37,8 +39,12 @@ public class MainActivity extends AppCompatActivity {
 
     private static final int PERMISSION_REQ_CODE = 1001;
 
-    private static final int SAMPLE_RATE = 16000;
-    private static final int CHUNK_SIZE = 3200;
+    // ตั้งค่า 32,000 Hz (32 kHz) ให้คุณภาพเสียงคมชัดสูง
+    private static final int SAMPLE_RATE = 32000;
+    // ก้อนข้อมูล 6400 ไบต์ = 100ms ส่ง 10 ครั้ง/วินาที
+    private static final int CHUNK_SIZE = 6400;
+    // จำกัดเวลาบันทึกสูงสุด 60 วินาที
+    private static final long MAX_RECORD_DURATION_MS = 60000;
 
     private WebView webView;
     private LinearLayout connectLayout;
@@ -54,6 +60,13 @@ public class MainActivity extends AppCompatActivity {
     private AcousticEchoCanceler echoCanceler;
     private boolean isRecording = false;
     private Thread recordingThread;
+    private final Handler timeoutHandler = new Handler(Looper.getMainLooper());
+    private final Runnable stopRecordingRunnable = () -> {
+        if (isRecording) {
+            Toast.makeText(MainActivity.this, "บันทึกเสียงครบ 60 วินาทีแล้ว กำลังส่งออกอากาศ...", Toast.LENGTH_SHORT).show();
+            stopNativeAudio();
+        }
+    };
 
     private final androidx.activity.result.ActivityResultLauncher<ScanOptions> barcodeLauncher =
         registerForActivityResult(new ScanContract(), result -> {
@@ -77,9 +90,7 @@ public class MainActivity extends AppCompatActivity {
         txtLastUrl = findViewById(R.id.txtLastUrl);
         prefs = getSharedPreferences("melody_remote_prefs", MODE_PRIVATE);
 
-        // สร้างช่องกรอก IP และปุ่มเชื่อมต่อแบบไดนามิก ป้องกัน Error จากไฟล์ XML
         setupManualInputUI();
-
         setupWebView();
 
         btnScan.setOnClickListener(v -> {
@@ -241,8 +252,17 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
 
+            // สั่งให้เว็บเตรียมเคลียร์บัฟเฟอร์เสียงชุดใหม่
+            webView.post(() -> {
+                webView.evaluateJavascript("if(window.prepareAudioBuffer){window.prepareAudioBuffer();}", null);
+            });
+
             audioRecord.startRecording();
             isRecording = true;
+
+            // ตั้งเวลานับถอยหลังตัดอัตโนมัติที่ 60 วินาที
+            timeoutHandler.removeCallbacks(stopRecordingRunnable);
+            timeoutHandler.postDelayed(stopRecordingRunnable, MAX_RECORD_DURATION_MS);
 
             recordingThread = new Thread(() -> {
                 byte[] audioBuffer = new byte[CHUNK_SIZE];
@@ -270,7 +290,10 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private synchronized void stopNativeAudio() {
+        if (!isRecording) return;
         isRecording = false;
+        timeoutHandler.removeCallbacks(stopRecordingRunnable);
+
         if (recordingThread != null) {
             recordingThread.interrupt();
             recordingThread = null;
@@ -291,6 +314,11 @@ public class MainActivity extends AppCompatActivity {
             } catch (Exception ignored) {}
             audioRecord = null;
         }
+
+        // แจ้งให้เว็บปิดก้อนข้อมูลและนำไปเล่นออกอากาศ
+        webView.post(() -> {
+            webView.evaluateJavascript("if(window.finishAudioRecording){window.finishAudioRecording();}", null);
+        });
     }
 
     private void startScanner() {
