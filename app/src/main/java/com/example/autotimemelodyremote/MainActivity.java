@@ -7,6 +7,7 @@ import android.content.pm.PackageManager;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
+import android.media.audiofx.AcousticEchoCanceler;
 import android.os.Bundle;
 import android.util.Base64;
 import android.view.View;
@@ -46,6 +47,7 @@ public class MainActivity extends AppCompatActivity {
 
     // Native Audio Engine
     private AudioRecord audioRecord;
+    private AcousticEchoCanceler echoCanceler;
     private boolean isRecording = false;
     private Thread recordingThread;
 
@@ -159,9 +161,9 @@ public class MainActivity extends AppCompatActivity {
             // ขยาย Buffer ของ AudioRecord ให้จุได้ 8 เท่าของขนาดก้อน ป้องกันเสียงขาดช่วง
             int internalBufferSize = Math.max(minBufSize, CHUNK_SIZE * 8);
 
-            // ใช้ VOICE_COMMUNICATION เพื่อตัด DC Offset และลดเสียงลมปะทะ
+            // 1. บังคับใช้ MIC ธรรมดา เพื่อจับเสียงจากไมค์สนทนาหลักตัวล่างตัวเดียว
             audioRecord = new AudioRecord(
-                    MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+                    MediaRecorder.AudioSource.MIC,
                     SAMPLE_RATE,
                     AudioFormat.CHANNEL_IN_MONO,
                     AudioFormat.ENCODING_PCM_16BIT,
@@ -170,6 +172,18 @@ public class MainActivity extends AppCompatActivity {
 
             if (audioRecord.getState() != AudioRecord.STATE_INITIALIZED) {
                 return;
+            }
+
+            // 2. เปิดระบบตัดเสียงสะท้อน (AEC) ของฮาร์ดแวร์มือถือถ้าเครื่องรองรับ
+            if (AcousticEchoCanceler.isAvailable()) {
+                try {
+                    echoCanceler = AcousticEchoCanceler.create(audioRecord.getAudioSessionId());
+                    if (echoCanceler != null) {
+                        echoCanceler.setEnabled(true);
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
             }
 
             audioRecord.startRecording();
@@ -207,6 +221,16 @@ public class MainActivity extends AppCompatActivity {
             recordingThread.interrupt();
             recordingThread = null;
         }
+
+        // ปิดและคืนทรัพยากร AEC
+        if (echoCanceler != null) {
+            try {
+                echoCanceler.setEnabled(false);
+                echoCanceler.release();
+            } catch (Exception ignored) {}
+            echoCanceler = null;
+        }
+
         if (audioRecord != null) {
             try {
                 audioRecord.stop();
