@@ -39,10 +39,10 @@ public class MainActivity extends AppCompatActivity {
 
     private static final int PERMISSION_REQ_CODE = 1001;
 
-    // ตั้งค่า 32,000 Hz (32 kHz) ให้คุณภาพเสียงคมชัดสูง
-    private static final int SAMPLE_RATE = 32000;
-    // ก้อนข้อมูล 6400 ไบต์ = 100ms ส่ง 10 ครั้ง/วินาที
-    private static final int CHUNK_SIZE = 6400;
+    // ตั้งค่า 44,100 Hz (44.1 kHz - คุณภาพเสียงระดับ CD Audio)
+    private static final int SAMPLE_RATE = 44100;
+    // ก้อนข้อมูล 8820 ไบต์ = 100ms ส่ง 10 ครั้ง/วินาที
+    private static final int CHUNK_SIZE = 8820;
     // จำกัดเวลาบันทึกสูงสุด 60 วินาที
     private static final long MAX_RECORD_DURATION_MS = 60000;
 
@@ -252,7 +252,6 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
 
-            // สั่งให้เว็บเตรียมเคลียร์บัฟเฟอร์เสียงชุดใหม่
             webView.post(() -> {
                 webView.evaluateJavascript("if(window.prepareAudioBuffer){window.prepareAudioBuffer();}", null);
             });
@@ -260,7 +259,6 @@ public class MainActivity extends AppCompatActivity {
             audioRecord.startRecording();
             isRecording = true;
 
-            // ตั้งเวลานับถอยหลังตัดอัตโนมัติที่ 60 วินาที
             timeoutHandler.removeCallbacks(stopRecordingRunnable);
             timeoutHandler.postDelayed(stopRecordingRunnable, MAX_RECORD_DURATION_MS);
 
@@ -295,7 +293,9 @@ public class MainActivity extends AppCompatActivity {
         timeoutHandler.removeCallbacks(stopRecordingRunnable);
 
         if (recordingThread != null) {
-            recordingThread.interrupt();
+            try {
+                recordingThread.join(300);
+            } catch (InterruptedException ignored) {}
             recordingThread = null;
         }
 
@@ -315,10 +315,9 @@ public class MainActivity extends AppCompatActivity {
             audioRecord = null;
         }
 
-        // แจ้งให้เว็บปิดก้อนข้อมูลและนำไปเล่นออกอากาศ
-        webView.post(() -> {
+        webView.postDelayed(() -> {
             webView.evaluateJavascript("if(window.finishAudioRecording){window.finishAudioRecording();}", null);
-        });
+        }, 100);
     }
 
     private void startScanner() {
