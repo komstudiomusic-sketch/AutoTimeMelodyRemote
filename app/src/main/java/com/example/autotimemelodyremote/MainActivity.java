@@ -8,7 +8,6 @@ import android.graphics.Color;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
-import android.media.audiofx.AcousticEchoCanceler;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -55,9 +54,8 @@ public class MainActivity extends AppCompatActivity {
     private TextView txtLastUrl;
     private SharedPreferences prefs;
 
-    // Native Audio Engine
+    // Native Audio Engine (ตัด AcousticEchoCanceler ออกแล้ว)
     private AudioRecord audioRecord;
-    private AcousticEchoCanceler echoCanceler;
     private boolean isRecording = false;
     private Thread recordingThread;
     private final Handler timeoutHandler = new Handler(Looper.getMainLooper());
@@ -241,17 +239,6 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
 
-            if (AcousticEchoCanceler.isAvailable()) {
-                try {
-                    echoCanceler = AcousticEchoCanceler.create(audioRecord.getAudioSessionId());
-                    if (echoCanceler != null) {
-                        echoCanceler.setEnabled(true);
-                    }
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-            }
-
             webView.post(() -> {
                 webView.evaluateJavascript("if(window.prepareAudioBuffer){window.prepareAudioBuffer();}", null);
             });
@@ -299,14 +286,6 @@ public class MainActivity extends AppCompatActivity {
             recordingThread = null;
         }
 
-        if (echoCanceler != null) {
-            try {
-                echoCanceler.setEnabled(false);
-                echoCanceler.release();
-            } catch (Exception ignored) {}
-            echoCanceler = null;
-        }
-
         if (audioRecord != null) {
             try {
                 audioRecord.stop();
@@ -336,8 +315,7 @@ public class MainActivity extends AppCompatActivity {
     private void requestSystemPermissions() {
         ActivityCompat.requestPermissions(this, new String[]{
                 Manifest.permission.RECORD_AUDIO,
-                Manifest.permission.CAMERA,
-                Manifest.permission.MODIFY_AUDIO_SETTINGS
+                Manifest.permission.CAMERA
         }, PERMISSION_REQ_CODE);
     }
 
