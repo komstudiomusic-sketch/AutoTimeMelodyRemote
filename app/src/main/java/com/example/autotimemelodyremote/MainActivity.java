@@ -161,9 +161,9 @@ public class MainActivity extends AppCompatActivity {
             // ขยาย Buffer ของ AudioRecord ให้จุได้ 8 เท่าของขนาดก้อน ป้องกันเสียงขาดช่วง
             int internalBufferSize = Math.max(minBufSize, CHUNK_SIZE * 8);
 
-            // 1. บังคับใช้ MIC ธรรมดา เพื่อจับเสียงจากไมค์สนทนาหลักตัวล่างตัวเดียว
+            // ใช้ VOICE_RECOGNITION เพื่อโฟกัสเสียงพูดระยะใกล้ และลดความไวต่อเสียงแวดล้อม/เสียงลำโพงรอบตัว
             audioRecord = new AudioRecord(
-                    MediaRecorder.AudioSource.MIC,
+                    MediaRecorder.AudioSource.VOICE_RECOGNITION,
                     SAMPLE_RATE,
                     AudioFormat.CHANNEL_IN_MONO,
                     AudioFormat.ENCODING_PCM_16BIT,
@@ -174,7 +174,7 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
 
-            // 2. เปิดระบบตัดเสียงสะท้อน (AEC) ของฮาร์ดแวร์มือถือถ้าเครื่องรองรับ
+            // เปิดใช้งานระบบตัดเสียงสะท้อน (Acoustic Echo Canceler) ของตัวเครื่อง
             if (AcousticEchoCanceler.isAvailable()) {
                 try {
                     echoCanceler = AcousticEchoCanceler.create(audioRecord.getAudioSessionId());
@@ -222,7 +222,7 @@ public class MainActivity extends AppCompatActivity {
             recordingThread = null;
         }
 
-        // ปิดและคืนทรัพยากร AEC
+        // ปิดและคืนทรัพยากรตัวตัดเสียงสะท้อน
         if (echoCanceler != null) {
             try {
                 echoCanceler.setEnabled(false);
