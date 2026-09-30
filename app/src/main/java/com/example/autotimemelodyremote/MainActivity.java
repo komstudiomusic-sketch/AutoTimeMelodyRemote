@@ -38,11 +38,11 @@ public class MainActivity extends AppCompatActivity {
 
     private static final int PERMISSION_REQ_CODE = 1001;
 
-    // ตั้งค่า 44,100 Hz (44.1 kHz - คุณภาพเสียงระดับ CD Audio)[cite: 2]
+    // ตั้งค่า 44,100 Hz (44.1 kHz - คุณภาพเสียงระดับ CD Audio)
     private static final int SAMPLE_RATE = 44100;
-    // ก้อนข้อมูล 8820 ไบต์ = 100ms ส่ง 10 ครั้ง/วินาที[cite: 2]
+    // ก้อนข้อมูล 8820 ไบต์ = 100ms ส่ง 10 ครั้ง/วินาที
     private static final int CHUNK_SIZE = 8820;
-    // จำกัดเวลาบันทึกสูงสุด 60 วินาที[cite: 2]
+    // จำกัดเวลาบันทึกสูงสุด 60 วินาที
     private static final long MAX_RECORD_DURATION_MS = 60000;
 
     private WebView webView;
@@ -256,6 +256,11 @@ public class MainActivity extends AppCompatActivity {
         public void stopRecording() {
             stopNativeAudio();
         }
+
+        @JavascriptInterface
+        public void cancelRecording() {
+            cancelNativeAudio();
+        }
     }
 
     @SuppressLint("MissingPermission")
@@ -344,6 +349,28 @@ public class MainActivity extends AppCompatActivity {
         }, 100);
     }
 
+    private synchronized void cancelNativeAudio() {
+        if (!isRecording) return;
+        isRecording = false;
+        timeoutHandler.removeCallbacks(stopRecordingRunnable);
+
+        if (recordingThread != null) {
+            try {
+                recordingThread.join(300);
+            } catch (InterruptedException ignored) {}
+            recordingThread = null;
+        }
+
+        if (audioRecord != null) {
+            try {
+                audioRecord.stop();
+                audioRecord.release();
+            } catch (Exception ignored) {}
+            audioRecord = null;
+        }
+        // สิ้นสุดการบันทึกโดยไม่สั่ง evaluateJavascript finishAudioRecording ทำให้เสียงไม่ถูกส่งออกอากาศ
+    }
+
     private void startScanner() {
         ScanOptions options = new ScanOptions();
         options.setPrompt("หันกล้องไปที่ QR Code บนหน้าจอคอมพิวเตอร์");
@@ -386,14 +413,14 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
-        stopNativeAudio();
+        cancelNativeAudio();
         super.onDestroy();
     }
 
     @Override
     public void onBackPressed() {
         if (webView.getVisibility() == View.VISIBLE) {
-            stopNativeAudio();
+            cancelNativeAudio();
             webView.setVisibility(View.GONE);
             btnRescan.setVisibility(View.GONE);
             connectLayout.setVisibility(View.VISIBLE);
