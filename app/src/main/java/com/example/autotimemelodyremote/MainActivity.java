@@ -17,6 +17,8 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.webkit.JavascriptInterface;
+import android.webkit.PermissionRequest;
+import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -37,6 +39,9 @@ import com.journeyapps.barcodescanner.ScanOptions;
 public class MainActivity extends AppCompatActivity {
 
     private static final int PERMISSION_REQ_CODE = 1001;
+
+    // โดเมนหลักของระบบ Cloud Relay Hub
+    private static final String CLOUD_DOMAIN = "https://atm-v2.duckdns.org";
 
     // ตั้งค่า 44,100 Hz (44.1 kHz - คุณภาพเสียงระดับ CD Audio)
     private static final int SAMPLE_RATE = 44100;
@@ -115,7 +120,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void setupManualInputUI() {
         TextView txtOr = new TextView(this);
-        txtOr.setText("— หรือกรอก IP / ลิงก์ภายนอก —");
+        txtOr.setText("— หรือพิมพ์รหัสโรงเรียน 6 หลัก / ลิงก์ —");
         txtOr.setTextColor(Color.parseColor("#777777"));
         txtOr.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams paramsOr = new LinearLayout.LayoutParams(
@@ -124,7 +129,7 @@ public class MainActivity extends AppCompatActivity {
         connectLayout.addView(txtOr, paramsOr);
 
         edtIpUrl = new EditText(this);
-        edtIpUrl.setHint("เช่น 192.168.1.100 หรือ https://...");
+        edtIpUrl.setHint("เช่น 8FA42B หรือ https://...");
         edtIpUrl.setHintTextColor(Color.parseColor("#666666"));
         edtIpUrl.setTextColor(Color.WHITE);
         edtIpUrl.setBackgroundColor(Color.parseColor("#222222"));
@@ -135,7 +140,7 @@ public class MainActivity extends AppCompatActivity {
         connectLayout.addView(edtIpUrl, paramsEdt);
 
         btnConnectManual = new Button(this);
-        btnConnectManual.setText("เชื่อมต่อ");
+        btnConnectManual.setText("เชื่อมต่อระบบ");
         btnConnectManual.setTextColor(Color.WHITE);
         btnConnectManual.setBackgroundColor(Color.parseColor("#2E7D32"));
         LinearLayout.LayoutParams paramsBtn = new LinearLayout.LayoutParams(
@@ -146,17 +151,34 @@ public class MainActivity extends AppCompatActivity {
         btnConnectManual.setOnClickListener(v -> {
             String input = edtIpUrl.getText().toString().trim();
             if (input.isEmpty()) {
-                Toast.makeText(this, "กรุณากรอก IP หรือ URL", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "กรุณากรอกรหัสโรงเรียนหรือ URL", Toast.LENGTH_SHORT).show();
                 return;
             }
             saveAndConnect(formatUrl(input));
         });
     }
 
+    /**
+     * แปลงข้อความที่พิมพ์ให้เป็น URL คลาวด์ที่ถูกต้อง
+     * - ถ้าพิมพ์รหัส 6 หลัก (เช่น 8FA42B) -> https://atm-v2.duckdns.org/?s=8FA42B
+     * - ถ้าพิมพ์ URL ตัวเต็ม -> ใช้ค่านั้นทันที
+     */
     private String formatUrl(String input) {
         if (input.startsWith("http://") || input.startsWith("https://")) {
             return input;
         }
+
+        // กรณีพิมพ์รหัสโรงเรียน 6 หลัก (ตัวอักษรภาษาอังกฤษและตัวเลข)
+        if (input.matches("^[a-zA-Z0-9]{6}$")) {
+            return CLOUD_DOMAIN + "/?s=" + input.toUpperCase();
+        }
+
+        // กรณีพิมพ์โดเมนแต่ลืมใส่ https://
+        if (input.contains("duckdns.org") || input.contains(".")) {
+            return "https://" + input;
+        }
+
+        // กรณีพิมพ์เลข IP วงแลนเดิม
         if (input.contains(":")) {
             return "http://" + input;
         } else {
@@ -189,15 +211,23 @@ public class MainActivity extends AppCompatActivity {
         settings.setAllowContentAccess(true);
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        settings.setMediaPlaybackRequiresUserGesture(false);
+
+        // รองรับการขอสิทธิ์ไมโครโฟนบนหน้าเว็บผ่าน WebRTC/WebAudio อัตโนมัติ
+        webView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public void onPermissionRequest(final PermissionRequest request) {
+                runOnUiThread(() -> request.grant(request.getResources()));
+            }
+        });
 
         webView.addJavascriptInterface(new AndroidAudioBridge(), "AndroidAudio");
         
-        // ดักจับและระงับไม่ให้แสดงหน้าเว็บ Error รวมถึงสั่งบังคับติ๊ก Auto Chime เมื่อโหลดหน้าเว็บเสร็จ
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
-                // บังคับติ๊กถูก Auto Chime และล็อกปุ่มดนตรีนำเป็นค่าเริ่มต้น
+                // บังคับติ๊กถูก Auto Chime เมื่อเปิดหน้าเว็บเสร็จ
                 webView.evaluateJavascript(
                     "const toggle = document.getElementById('autoChimeToggleMobile');" +
                     "if(toggle && !toggle.checked) {" +
@@ -241,7 +271,7 @@ public class MainActivity extends AppCompatActivity {
                 if (btnRescan != null) btnRescan.setVisibility(View.GONE);
                 if (connectLayout != null) connectLayout.setVisibility(View.VISIBLE);
                 
-                Toast.makeText(MainActivity.this, "ไม่พบเซิร์ฟเวอร์ กรุณาตรวจสอบการเชื่อมต่อ Wi-Fi หรือ IP", Toast.LENGTH_LONG).show();
+                Toast.makeText(MainActivity.this, "ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ กรุณาตรวจสอบอินเทอร์เน็ต", Toast.LENGTH_LONG).show();
             }
         });
     }
@@ -368,7 +398,6 @@ public class MainActivity extends AppCompatActivity {
             } catch (Exception ignored) {}
             audioRecord = null;
         }
-        // สิ้นสุดการบันทึกโดยไม่สั่ง evaluateJavascript finishAudioRecording ทำให้เสียงไม่ถูกส่งออกอากาศ
     }
 
     private void startScanner() {
