@@ -36,6 +36,8 @@ import androidx.core.content.ContextCompat;
 import com.journeyapps.barcodescanner.ScanContract;
 import com.journeyapps.barcodescanner.ScanOptions;
 
+import java.io.ByteArrayOutputStream;
+
 public class MainActivity extends AppCompatActivity {
 
     private static final int PERMISSION_REQ_CODE = 1001;
@@ -45,7 +47,7 @@ public class MainActivity extends AppCompatActivity {
 
     // ตั้งค่า 44,100 Hz (44.1 kHz - คุณภาพเสียงระดับ CD Audio)
     private static final int SAMPLE_RATE = 44100;
-    // ก้อนข้อมูล 8820 ไบต์ = 100ms ส่ง 10 ครั้ง/วินาที
+    // ก้อนข้อมูลบัฟเฟอร์การอ่าน
     private static final int CHUNK_SIZE = 8820;
     // จำกัดเวลาบันทึกสูงสุด 60 วินาที
     private static final long MAX_RECORD_DURATION_MS = 60000;
@@ -63,11 +65,14 @@ public class MainActivity extends AppCompatActivity {
     private AudioRecord audioRecord;
     private boolean isRecording = false;
     private Thread recordingThread;
+    private ByteArrayOutputStream pcmAudioStream;
+    private boolean currentAutoChimePref = true;
+
     private final Handler timeoutHandler = new Handler(Looper.getMainLooper());
     private final Runnable stopRecordingRunnable = () -> {
         if (isRecording) {
             Toast.makeText(MainActivity.this, "บันทึกเสียงครบ 60 วินาทีแล้ว กำลังส่งออกอากาศ...", Toast.LENGTH_SHORT).show();
-            stopNativeAudio();
+            stopNativeAudio(currentAutoChimePref);
         }
     };
 
@@ -105,7 +110,7 @@ public class MainActivity extends AppCompatActivity {
         });
 
         btnRescan.setOnClickListener(v -> {
-            stopNativeAudio();
+            cancelNativeAudio();
             webView.setVisibility(View.GONE);
             btnRescan.setVisibility(View.GONE);
             connectLayout.setVisibility(View.VISIBLE);
@@ -160,7 +165,7 @@ public class MainActivity extends AppCompatActivity {
 
     /**
      * แปลงข้อความที่พิมพ์ให้เป็น URL คลาวด์ที่ถูกต้อง
-     * - ถ้าพิมพ์รหัส 6 หลัก (เช่น 8FA42B) -> https://atm-v2.duckdns.org/?s=8FA42B
+     * - ถ้าพิมพ์รหัส 6 หลัก (เช่น 8FA42B) -> https://atm-v2.duckdns.org/?code=8FA42B
      * - ถ้าพิมพ์ URL ตัวเต็ม -> ใช้ค่านั้นทันที
      */
     private String formatUrl(String input) {
@@ -168,17 +173,15 @@ public class MainActivity extends AppCompatActivity {
             return input;
         }
 
-        // กรณีพิมพ์รหัสโรงเรียน 6 หลัก (ตัวอักษรภาษาอังกฤษและตัวเลข)
+        // ปรับเป็น ?code= ให้สอดคล้องกับ main.js และ index.html ล่าสุด
         if (input.matches("^[a-zA-Z0-9]{6}$")) {
-            return CLOUD_DOMAIN + "/?s=" + input.toUpperCase();
+            return CLOUD_DOMAIN + "/?code=" + input.toUpperCase();
         }
 
-        // กรณีพิมพ์โดเมนแต่ลืมใส่ https://
         if (input.contains("duckdns.org") || input.contains(".")) {
             return "https://" + input;
         }
 
-        // กรณีพิมพ์เลข IP วงแลนเดิม
         if (input.contains(":")) {
             return "http://" + input;
         } else {
@@ -225,20 +228,6 @@ public class MainActivity extends AppCompatActivity {
         
         webView.setWebViewClient(new WebViewClient() {
             @Override
-            public void onPageFinished(WebView view, String url) {
-                super.onPageFinished(view, url);
-                // บังคับติ๊กถูก Auto Chime เมื่อเปิดหน้าเว็บเสร็จ
-                webView.evaluateJavascript(
-                    "const toggle = document.getElementById('autoChimeToggleMobile');" +
-                    "if(toggle && !toggle.checked) {" +
-                    "   toggle.checked = true;" +
-                    "   if(typeof toggleAutoChimeMobile === 'function') toggleAutoChimeMobile(true);" +
-                    "}", 
-                    null
-                );
-            }
-
-            @Override
             public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
                 view.stopLoading();
                 view.loadUrl("about:blank");
@@ -266,7 +255,7 @@ public class MainActivity extends AppCompatActivity {
     private void handleConnectionFailure() {
         runOnUiThread(() -> {
             if (webView.getVisibility() == View.VISIBLE) {
-                stopNativeAudio();
+                cancelNativeAudio();
                 webView.setVisibility(View.GONE);
                 if (btnRescan != null) btnRescan.setVisibility(View.GONE);
                 if (connectLayout != null) connectLayout.setVisibility(View.VISIBLE);
@@ -282,9 +271,16 @@ public class MainActivity extends AppCompatActivity {
             startNativeAudio();
         }
 
+        // กรณีเรียกแบบเดิมไม่ระบุพารามิเตอร์ (Default ให้เปิด Auto Chime)
         @JavascriptInterface
         public void stopRecording() {
-            stopNativeAudio();
+            stopNativeAudio(true);
+        }
+
+        // รองรับรับค่า isAutoChime โดยตรงจากหน้าเว็บ
+        @JavascriptInterface
+        public void stopRecording(boolean isAutoChime) {
+            stopNativeAudio(isAutoChime);
         }
 
         @JavascriptInterface
@@ -319,8 +315,10 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
 
+            pcmAudioStream = new ByteArrayOutputStream();
+
             webView.post(() -> {
-                webView.evaluateJavascript("if(window.prepareAudioBuffer){window.prepareAudioBuffer();}", null);
+                webView.evaluateJavascript("if(window.socket){window.socket.emit('remote-command', {action:'mic-status', active:true});}", null);
             });
 
             audioRecord.startRecording();
@@ -333,15 +331,10 @@ public class MainActivity extends AppCompatActivity {
                 byte[] audioBuffer = new byte[CHUNK_SIZE];
                 while (isRecording) {
                     int readBytes = audioRecord.read(audioBuffer, 0, audioBuffer.length);
-                    if (readBytes > 0) {
-                        String base64Chunk = Base64.encodeToString(audioBuffer, 0, readBytes, Base64.NO_WRAP);
-                        
-                        webView.post(() -> {
-                            webView.evaluateJavascript(
-                                "if(window.sendAudioChunk){window.sendAudioChunk('" + base64Chunk + "');}", 
-                                null
-                            );
-                        });
+                    if (readBytes > 0 && pcmAudioStream != null) {
+                        synchronized (pcmAudioStream) {
+                            pcmAudioStream.write(audioBuffer, 0, readBytes);
+                        }
                     }
                 }
             });
@@ -354,7 +347,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private synchronized void stopNativeAudio() {
+    private synchronized void stopNativeAudio(boolean isAutoChime) {
         if (!isRecording) return;
         isRecording = false;
         timeoutHandler.removeCallbacks(stopRecordingRunnable);
@@ -374,9 +367,37 @@ public class MainActivity extends AppCompatActivity {
             audioRecord = null;
         }
 
-        webView.postDelayed(() -> {
-            webView.evaluateJavascript("if(window.finishAudioRecording){window.finishAudioRecording();}", null);
-        }, 100);
+        if (pcmAudioStream != null) {
+            byte[] rawPcmData = pcmAudioStream.toByteArray();
+            pcmAudioStream = null;
+
+            if (rawPcmData.length > 0) {
+                // แปลงข้อมูล PCM 16-bit เป็นไฟล์ WAV พร้อม Header เพื่อให้ Web Audio ถอดรหัสได้ 100%
+                byte[] wavData = addWavHeader(rawPcmData, SAMPLE_RATE, 1, 16);
+                String base64Wav = Base64.encodeToString(wavData, Base64.NO_WRAP);
+
+                // ส่งข้อมูลเสียงเข้าสู่ WebSocket ของหน้าเว็บ ส่งตรงเข้า Cloud Relay Server ทันที
+                webView.post(() -> {
+                    String script = String.format(
+                        "(function() {" +
+                        "   const b64 = '%s';" +
+                        "   const binary = atob(b64);" +
+                        "   const bytes = new Uint8Array(binary.length);" +
+                        "   for (let i = 0; i < binary.length; i++) { bytes[i] = binary.charCodeAt(i); }" +
+                        "   if (window.socket) {" +
+                        "       window.socket.emit('voice-file-complete', {" +
+                        "           audio: bytes.buffer," +
+                        "           autoChime: %b" +
+                        "       });" +
+                        "   }" +
+                        "   if (typeof resetSpeakingUI === 'function') resetSpeakingUI();" +
+                        "})();",
+                        base64Wav, isAutoChime
+                    );
+                    webView.evaluateJavascript(script, null);
+                });
+            }
+        }
     }
 
     private synchronized void cancelNativeAudio() {
@@ -398,6 +419,55 @@ public class MainActivity extends AppCompatActivity {
             } catch (Exception ignored) {}
             audioRecord = null;
         }
+
+        pcmAudioStream = null;
+
+        webView.post(() -> {
+            webView.evaluateJavascript(
+                "if (window.socket) { window.socket.emit('remote-command', {action:'mic-status', active:false}); }" +
+                "if (typeof resetSpeakingUI === 'function') resetSpeakingUI();",
+                null
+            );
+        });
+    }
+
+    // ฟังก์ชันสร้าง Header ไฟล์ WAV (RIFF standard 44.1kHz Mono 16-bit)
+    private byte[] addWavHeader(byte[] pcmData, int sampleRate, int channels, int bitsPerSample) {
+        int byteRate = sampleRate * channels * (bitsPerSample / 8);
+        int totalDataLen = pcmData.length + 36;
+        int totalAudioLen = pcmData.length;
+
+        byte[] header = new byte[44];
+        header[0] = 'R'; header[1] = 'I'; header[2] = 'F'; header[3] = 'F';
+        header[4] = (byte) (totalDataLen & 0xff);
+        header[5] = (byte) ((totalDataLen >> 8) & 0xff);
+        header[6] = (byte) ((totalDataLen >> 16) & 0xff);
+        header[7] = (byte) ((totalDataLen >> 24) & 0xff);
+        header[8] = 'W'; header[9] = 'A'; header[10] = 'V'; header[11] = 'E';
+        header[12] = 'f'; header[13] = 'm'; header[14] = 't'; header[15] = ' ';
+        header[16] = 16; header[17] = 0; header[18] = 0; header[19] = 0;
+        header[20] = 1; header[21] = 0;
+        header[22] = (byte) channels; header[23] = 0;
+        header[24] = (byte) (sampleRate & 0xff);
+        header[25] = (byte) ((sampleRate >> 8) & 0xff);
+        header[26] = (byte) ((sampleRate >> 16) & 0xff);
+        header[27] = (byte) ((sampleRate >> 24) & 0xff);
+        header[28] = (byte) (byteRate & 0xff);
+        header[29] = (byte) ((byteRate >> 8) & 0xff);
+        header[30] = (byte) ((byteRate >> 16) & 0xff);
+        header[31] = (byte) ((byteRate >> 24) & 0xff);
+        header[32] = (byte) (channels * (bitsPerSample / 8)); header[33] = 0;
+        header[34] = (byte) bitsPerSample; header[35] = 0;
+        header[36] = 'd'; header[37] = 'a'; header[38] = 't'; header[39] = 'a';
+        header[40] = (byte) (totalAudioLen & 0xff);
+        header[41] = (byte) ((totalAudioLen >> 8) & 0xff);
+        header[42] = (byte) ((totalAudioLen >> 16) & 0xff);
+        header[43] = (byte) ((totalAudioLen >> 24) & 0xff);
+
+        byte[] wavOutput = new byte[44 + pcmData.length];
+        System.arraycopy(header, 0, wavOutput, 0, 44);
+        System.arraycopy(pcmData, 0, wavOutput, 44, pcmData.length);
+        return wavOutput;
     }
 
     private void startScanner() {
